@@ -5,3 +5,4 @@ edition = "2021"
 
 [dependencies]
 leptos = { version = "0.7.7", features = ["csr"] }
+rust_fish_chess_engine="0.1.0"
