@@ -1,5 +1,6 @@
 use leptos::{ev::select, prelude::*};
-use rust_fish_chess_engine::{Piece, PieceType};
+use rust_fish_chess_engine::{chess_functionality::moves::{calculate_possible_moves, king::CastleState, Move}, Piece, PieceType};
+use web_sys::wasm_bindgen::JsValue;
 
 fn main() {
     leptos::mount::mount_to_body(ChessBoard)
@@ -65,10 +66,18 @@ pub fn ChessBoard() -> impl IntoView {
         ]
     );
 
+    let (possible_moves, set_possible_moves) = signal(vec![Move { current_pos: (0,0), new_pos: (0,0) }]);
+    set_possible_moves.set(vec![]);
+
+    let (previous_move, set_previous_move) = signal(Some(Move { current_pos: (0,0), new_pos: (0,0) }));
+    set_previous_move.set(None);
+
+    let (castle_state, set_castle_state) = signal(CastleState::new());
+
     view! {
         <div class="chess-container">
             <div class="chessboard">
-                {board.get().into_iter().enumerate().map(|(row_idx, row)| {
+                {move || board.get().into_iter().enumerate().map(|(row_idx, row)| {
                     view! {
                         <div class="row">
                             {row.into_iter().enumerate().map(|(col_idx, tile)| {
@@ -77,24 +86,58 @@ pub fn ChessBoard() -> impl IntoView {
                                 view! {
                                     <div
                                         class={move || format!(
-                                            "square {} {}",
+                                            "square {} {} {}",
                                             square_class,
                                             match selected_tile.get() {
                                                 Some(selected_tile) if selected_tile.is_selected(row_idx, col_idx) => "selected",
                                                 _ => ""
+                                            },
+                                            match possible_moves.get().iter().find(|m| m.new_pos == (row_idx, col_idx)) {
+                                                Some(_) => "possible-move",
+                                                None => ""
                                             }
                                         )}
-                                        on:click={move |_|
-                                            match &board.get()[row_idx][col_idx] {
-                                                Some(piece) => {
-                                                    let whites_turn = white_turn.get();
-                                                    match piece {
-                                                        Piece::White(_) if whites_turn => set_selected_tile.set(Some(SelectedTile { row: row_idx, col: col_idx })),
-                                                        Piece::Black(_) if !whites_turn => set_selected_tile.set(Some(SelectedTile { row: row_idx, col: col_idx })),
-                                                        _ => {}
+                                        on:click={move |_| {
+                                                let whites_turn = white_turn.get();
+                                                // first check if it's a valid move
+                                                match possible_moves.get().iter().find(|m| m.new_pos == (row_idx, col_idx)) {
+                                                    Some(m) => {
+                                                        let mut new_board = board.get();
+                                                        new_board[m.new_pos.0][m.new_pos.1] = Some(new_board[m.current_pos.0][m.current_pos.1].take().unwrap());
+                                                        new_board[m.current_pos.0][m.current_pos.1] = None;
+                                                        set_board.set(new_board);
+                                                        set_white_turn.set(!whites_turn);
+                                                        set_selected_tile.set(None);
+                                                        set_possible_moves.set(vec![]);
+                                                        set_previous_move.set(Some(m.clone()));
+                                                        // set_castle_state.set(castle_state.get().update_castle_state(m.clone()));
+                                                        // console log the board
+                                                        web_sys::console::log_1(&JsValue::from_str(&format!("{:?}", board.get())));
+                                                        return
                                                     }
+                                                    None => {}
+                                                };
+
+                                                match &board.get()[row_idx][col_idx] {
+                                                    Some(piece) => {
+                                                        // else try to select the piece
+                                                        match piece {
+                                                            Piece::White(_) if whites_turn => set_selected_tile.set(Some(SelectedTile { row: row_idx, col: col_idx })),
+                                                            Piece::Black(_) if !whites_turn => set_selected_tile.set(Some(SelectedTile { row: row_idx, col: col_idx })),
+                                                            _ => return
+                                                        };
+                                                        set_possible_moves.set(calculate_possible_moves(
+                                                            row_idx,
+                                                            col_idx,
+                                                            &mut board.get(),
+                                                            false,
+                                                            whites_turn,
+                                                            &previous_move.get(),
+                                                            &mut castle_state.get()
+                                                        ).unwrap());
+                                                    }
+                                                    None => {}
                                                 }
-                                                None => {}
                                             }
                                         }
                                     >
@@ -155,6 +198,10 @@ pub fn ChessBoard() -> impl IntoView {
 
             .selected, .selected:hover {
                 background-color: rgba(255, 255, 0, 0.5);
+            }
+
+            .possible-move {
+                background-color: rgba(0, 255, 0, 0.5);
             }
         "#}
     </style>
