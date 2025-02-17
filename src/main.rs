@@ -1,5 +1,5 @@
 use leptos::{ev::select, prelude::*};
-use rust_fish_chess_engine::{chess_functionality::moves::{calculate_possible_moves, king::CastleState, Move}, Piece, PieceType};
+use rust_fish_chess_engine::{chess_functionality::moves::{calculate_possible_moves, check::king_is_checked, king::CastleState, move_piece::move_piece, Move}, Piece, PieceType};
 use web_sys::wasm_bindgen::JsValue;
 
 fn main() {
@@ -66,10 +66,10 @@ pub fn ChessBoard() -> impl IntoView {
         ]
     );
 
-    let (possible_moves, set_possible_moves) = signal(vec![Move { current_pos: (0,0), new_pos: (0,0) }]);
+    let (possible_moves, set_possible_moves) = signal(vec![Move { current_pos: (0,0), new_pos: (0,0), special_rule: None }]);
     set_possible_moves.set(vec![]);
 
-    let (previous_move, set_previous_move) = signal(Some(Move { current_pos: (0,0), new_pos: (0,0) }));
+    let (previous_move, set_previous_move) = signal(Some(Move { current_pos: (0,0), new_pos: (0,0), special_rule: None }));
     set_previous_move.set(None);
 
     let (castle_state, set_castle_state) = signal(CastleState::new());
@@ -86,7 +86,7 @@ pub fn ChessBoard() -> impl IntoView {
                                 view! {
                                     <div
                                         class={move || format!(
-                                            "square {} {} {}",
+                                            "square {} {} {} {}",
                                             square_class,
                                             match selected_tile.get() {
                                                 Some(selected_tile) if selected_tile.is_selected(row_idx, col_idx) => "selected",
@@ -95,6 +95,29 @@ pub fn ChessBoard() -> impl IntoView {
                                             match possible_moves.get().iter().find(|m| m.new_pos == (row_idx, col_idx)) {
                                                 Some(_) => "possible-move",
                                                 None => ""
+                                            },
+                                            match &board.get()[row_idx][col_idx] {
+                                                Some(Piece::White(PieceType::King)) if white_turn.get() => {
+                                                    match king_is_checked(&mut board.get(), white_turn.get(), &previous_move.get(), &mut castle_state.get()) {
+                                                        Ok(true) => "checked",
+                                                        Ok(false) => "",
+                                                        Err(_) => {
+                                                            web_sys::console::log_1(&JsValue::from_str("Error checking if king is checked"));
+                                                            ""
+                                                        }
+                                                    }
+                                                },
+                                                Some(Piece::Black(PieceType::King)) if !white_turn.get() => {
+                                                    match king_is_checked(&mut board.get(), white_turn.get(), &previous_move.get(), &mut castle_state.get()) {
+                                                        Ok(true) => "checked",
+                                                        Ok(false) => "",
+                                                        Err(_) => {
+                                                            web_sys::console::log_1(&JsValue::from_str("Error checking if king is checked"));
+                                                            ""
+                                                        }
+                                                    }
+                                                },
+                                                _ => ""
                                             }
                                         )}
                                         on:click={move |_| {
@@ -103,15 +126,14 @@ pub fn ChessBoard() -> impl IntoView {
                                                 match possible_moves.get().iter().find(|m| m.new_pos == (row_idx, col_idx)) {
                                                     Some(m) => {
                                                         let mut new_board = board.get();
-                                                        new_board[m.new_pos.0][m.new_pos.1] = Some(new_board[m.current_pos.0][m.current_pos.1].take().unwrap());
-                                                        new_board[m.current_pos.0][m.current_pos.1] = None;
+                                                        let mut new_castle_state = castle_state.get();
+                                                        move_piece(&m, &mut new_board, &mut new_castle_state);
                                                         set_board.set(new_board);
                                                         set_white_turn.set(!whites_turn);
                                                         set_selected_tile.set(None);
                                                         set_possible_moves.set(vec![]);
                                                         set_previous_move.set(Some(m.clone()));
-                                                        // set_castle_state.set(castle_state.get().update_castle_state(m.clone()));
-                                                        // console log the board
+                                                        set_castle_state.set(new_castle_state);
                                                         web_sys::console::log_1(&JsValue::from_str(&format!("{:?}", board.get())));
                                                         return
                                                     }
@@ -130,10 +152,11 @@ pub fn ChessBoard() -> impl IntoView {
                                                             row_idx,
                                                             col_idx,
                                                             &mut board.get(),
-                                                            false,
+                                                            true,
                                                             whites_turn,
                                                             &previous_move.get(),
-                                                            &mut castle_state.get()
+                                                            &mut castle_state.get(),
+                                                            false
                                                         ).unwrap());
                                                     }
                                                     None => {}
@@ -202,6 +225,10 @@ pub fn ChessBoard() -> impl IntoView {
 
             .possible-move {
                 background-color: rgba(0, 255, 0, 0.5);
+            }
+
+            .checked {
+                background-color: rgba(255, 0, 0, 0.5);
             }
         "#}
     </style>
